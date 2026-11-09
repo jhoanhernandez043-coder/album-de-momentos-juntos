@@ -229,7 +229,7 @@ header,.season-heading,.caption,.carta-contenido,.card-back,.ticket-info,footer{
 <input aria-label="Escribe un recado" id="noteInput" maxlength="220" placeholder="Escribe un recado..." required="" type="text"/>
 <button aria-label="Guardar nota" type="submit">➜</button>
 </form>
-<p class="notes-status" id="notesStatus">Las notas se guardan en este navegador.</p>
+<p class="notes-status" id="notesStatus">Los recados se sincronizan entre dispositivos en tiempo real.</p>
 <div aria-live="polite" class="notes-list" id="notesList"></div>
 </section>
 <nav aria-label="Secciones del álbum" class="season-nav">
@@ -518,38 +518,96 @@ function togglePlay() {
   }
 }
 </script>
-<script>
-(() => {
- const STORAGE_KEY='pequenos-momentos-notas-v1';
- const form=document.getElementById('noteForm');
- const input=document.getElementById('noteInput');
- const list=document.getElementById('notesList');
- const status=document.getElementById('notesStatus');
- const readNotes=()=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]')}catch{return []}};
- const render=()=>{
-   const notes=readNotes(); list.replaceChildren();
-   if(!notes.length){const empty=document.createElement('p');empty.className='notes-status';empty.textContent='Todavía no hay recados. Puedes dejar el primero. 💛';list.append(empty);return;}
-   notes.slice().reverse().forEach(note=>{
-     const item=document.createElement('article');item.className='note-entry';
-     const p=document.createElement('p');p.textContent=note.text;
-     const time=document.createElement('time');time.textContent=note.date;
-     item.append(p,time);list.append(item);
-   });
- };
- if(form)form.addEventListener('submit',e=>{
-   e.preventDefault();const text=input.value.trim();if(!text)return;
-   const notes=readNotes();notes.push({text,date:new Date().toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'})});
-   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(notes));input.value='';render();status.textContent='Recado guardado en este navegador.';}
-   catch{status.textContent='No se pudo guardar la nota en este navegador.';}
- });
- render();
- const player=document.getElementById('spotifyPlayer'),open=document.getElementById('spotifyOpen');
- document.querySelectorAll('.spotify-choice').forEach(button=>button.addEventListener('click',()=>{
-   const id=button.dataset.track;if(!id||!player)return;
-   player.src=`https://open.spotify.com/embed/track/${id}?utm_source=generator&theme=0`;
-   if(open)open.href=`https://open.spotify.com/track/${id}`;
-   document.querySelectorAll('.spotify-choice').forEach(b=>b.classList.toggle('active',b===button));
- }));
-})();
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getDatabase, ref, push, onValue, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// CONFIGURACIÓN DE FIREBASE (TU BASE DE DATOS)
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBt5sR_fL4mHzLAEecFfAEk-NqGKEBahh4",
+  authDomain: "nuestro-album-juntos.firebaseapp.com",
+  databaseURL: "https://nuestro-album-juntos-default-rtdb.firebaseio.com",
+  projectId: "nuestro-album-juntos",
+  storageBucket: "nuestro-album-juntos.firebasestorage.app",
+  messagingSenderId: "10113405082",
+  appId: "1:10113405082:web:7c1e8936638c136dd24f23"
+};
+
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+const notesRef = ref(database, "album/recados");
+
+const form = document.getElementById("noteForm");
+const input = document.getElementById("noteInput");
+const list = document.getElementById("notesList");
+const status = document.getElementById("notesStatus");
+
+function showStatus(message) {
+  if (status) status.textContent = message;
+}
+
+function renderNotes(snapshot) {
+  if (!list) return;
+  list.replaceChildren();
+
+  if (!snapshot.exists()) {
+    const empty = document.createElement("p");
+    empty.className = "notes-status";
+    empty.textContent = "Todavía no hay recados. Puedes dejar el primero. 💛";
+    list.append(empty);
+    return;
+  }
+
+  const notes = [];
+  snapshot.forEach(child => notes.push({ id: child.key, ...child.val() }));
+  notes.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  notes.slice(-100).reverse().forEach(note => {
+    const item = document.createElement("article");
+    item.className = "note-entry";
+
+    const message = document.createElement("p");
+    message.textContent = note.text || "";
+
+    const date = document.createElement("time");
+    date.textContent = note.createdAt
+      ? new Date(note.createdAt).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })
+      : "Recién enviado";
+
+    item.append(message, date);
+    list.append(item);
+  });
+}
+
+if (form) {
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const text = input?.value.trim();
+    if (!text) return;
+
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    showStatus("Enviando recado…");
+
+    try {
+      await push(notesRef, { text, createdAt: Date.now(), serverTime: serverTimestamp() });
+      input.value = "";
+      showStatus("Recado compartido. 💛");
+    } catch (error) {
+      console.error("Firebase write error:", error);
+      showStatus("No se pudo enviar. Revisa las reglas de Realtime Database.");
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
+}
+
+onValue(notesRef, renderNotes, error => {
+  console.error("Firebase read error:", error);
+  showStatus("No se pudieron cargar los recados. Revisa la configuración y las reglas de Firebase.");
+});
 </script></body>
 </html>
